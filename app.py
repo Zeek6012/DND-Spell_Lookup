@@ -606,6 +606,41 @@ def spells_lookup_page():
                         st.rerun()
 
 
+            st.divider()
+            st.subheader("Danger Zone")
+            st.caption("Deletes ONLY this spell (not the whole table).")
+
+            spell_del_confirm = st.text_input(
+                f'Type DELETE to enable deleting “{spell_name}”',
+                value="",
+                key=f"spell_delete_confirm_{picked_id}",
+                disabled=st.session_state.get("spell_confirming", False),
+            )
+            if st.button(
+                "🗑️ Delete This Spell",
+                type="primary",
+                disabled=(spell_del_confirm.strip().upper() != "DELETE") or st.session_state.get("spell_confirming", False),
+                key=f"spell_delete_btn_{picked_id}",
+                use_container_width=True,
+            ):
+                delete_row(TABLE_SPELLS, int(picked_id))
+                st.cache_data.clear()
+                st.session_state["spell_editing"] = False
+                st.session_state["spell_confirming"] = False
+                st.session_state["spell_pending_updates"] = {}
+                st.success("Spell deleted.")
+                st.rerun()
+
+
+
+def delete_row(table: str, row_id: int) -> None:
+    con = connect_db()
+    try:
+        con.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
+        con.commit()
+    finally:
+        con.close()
+
 def manage_spells_page():
     st.title("Manage Spells")
     st.info(
@@ -876,6 +911,32 @@ def feats_lookup_page():
                     if st.button("↩ Cancel Save", key="feat_cancel_save_btn"):
                         st.session_state["feat_confirming"] = False
                         st.rerun()
+
+
+            st.divider()
+            st.subheader("Danger Zone")
+            st.caption("Deletes ONLY this feat (not the whole table).")
+
+            feat_del_confirm = st.text_input(
+                f'Type DELETE to enable deleting “{feat_name}”',
+                value="",
+                key=f"feat_delete_confirm_{picked_id}",
+                disabled=st.session_state.get("feat_confirming", False),
+            )
+            if st.button(
+                "🗑️ Delete This Feat",
+                type="primary",
+                disabled=(feat_del_confirm.strip().upper() != "DELETE") or st.session_state.get("feat_confirming", False),
+                key=f"feat_delete_btn_{picked_id}",
+                use_container_width=True,
+            ):
+                delete_row(TABLE_FEATS, int(picked_id))
+                st.cache_data.clear()
+                st.session_state["feat_editing"] = False
+                st.session_state["feat_confirming"] = False
+                st.session_state["feat_pending_updates"] = {}
+                st.success("Feat deleted.")
+                st.rerun()
 
 
 def manage_feats_page():
