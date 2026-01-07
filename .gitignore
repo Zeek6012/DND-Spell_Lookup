@@ -5,3 +5,6 @@ __pycache__/
 data/lookup.db
 data/_spells_upload_tmp.xlsx
 data/_feats_upload_tmp.xlsx
+*.db
+data/*.db
+data/lookup.db
