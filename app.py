@@ -254,7 +254,7 @@ def drop_class_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def import_spells_excel_to_db(xlsx_path: str) -> None:
-    df = pd.read_excel(xlsx_path, dtype=str).fillna("")
+    df = pd.read_excel(xlsx_path, dtype=str)
     df.columns = [str(c).strip() for c in df.columns]
 
     df = build_classes_from_columns(df)
@@ -297,16 +297,34 @@ def format_page(pg: str) -> str:
 
 
 # ---------------- Feats ----------------
-FEAT_COLS = ["Feat Name", "Race", "Class", "Subclass", "Description"]
-
+FEAT_COLS = [
+    "Feat Name",
+    "Category",
+    "Prerequisite",
+    "Repeatable",
+    "Summary",
+    "Source",
+    "Race",
+    "Class",
+    "Subclass",
+]
 
 def ensure_feats_table() -> None:
+    """
+    Enforce feats table schema exactly. If it doesn't match, DROP + recreate.
+    """
     con = connect_db()
     try:
         if table_exists(con, TABLE_FEATS):
-            return
-        empty = pd.DataFrame(columns=["id"] + FEAT_COLS)
-        empty.to_sql(TABLE_FEATS, con, if_exists="replace", index=False)
+            cols = [r[1] for r in con.execute(f"PRAGMA table_info({TABLE_FEATS})").fetchall()]
+            expected = ["id"] + FEAT_COLS
+            if cols != expected:
+                con.execute(f"DROP TABLE IF EXISTS {TABLE_FEATS}")
+                con.commit()
+
+        if not table_exists(con, TABLE_FEATS):
+            empty = pd.DataFrame(columns=["id"] + FEAT_COLS)
+            empty.to_sql(TABLE_FEATS, con, if_exists="replace", index=False)
     finally:
         con.close()
 
@@ -565,7 +583,7 @@ def spells_lookup_page():
             updates: Dict[str, str] = {}
 
             new_desc = st.text_area(
-                "Description (Markdown)",
+                "Summary (Markdown)",
                 value=raw_desc,
                 height=340,
                 help="Markdown supports **bold**. Underline via <u>text</u>. Extra blank lines preserved.",
@@ -690,7 +708,7 @@ def manage_spells_page():
             "Fill the Data sheet only.",
             "Use _Classes (semicolon-separated).",
             "Leave blanks blank (do not use _).",
-            "Description supports Markdown; underline via <u>text</u>.",
+            "Summary supports Markdown; underline via <u>text</u>.",
             "Upload via Bulk Import / Replace."
         ]),
         file_name="spells_template.xlsx",
@@ -733,7 +751,7 @@ def manage_spells_page():
     with st.form("add_spell_form", clear_on_submit=True):
         name = st.text_input("Spell Name*", value="")
         classes = st.text_input("_Classes", value="")
-        desc = st.text_area("Description (Markdown)", value="", height=220)
+        desc = st.text_area("Summary (Markdown)", value="", height=220)
         submitted = st.form_submit_button("Create Spell", type="primary")
 
         if submitted:
@@ -874,16 +892,16 @@ def feats_lookup_page():
             updates: Dict[str, str] = {}
 
             new_desc = st.text_area(
-                "Description (Markdown)",
+                "Summary (Markdown)",
                 value=raw_desc,
                 height=320,
                 help="Markdown supports **bold**. Underline via <u>text</u>. Extra blank lines preserved.",
                 key="feat_desc_editor",
             )
             if new_desc != raw_desc:
-                updates["Description"] = new_desc
+                updates["Summary"] = new_desc
 
-            for col in ["Feat Name","Race","Class","Subclass"]:
+            for col in ["Feat Name","Category","Prerequisite","Repeatable","Source","Race","Class","Subclass"]:
                 current = str(selected.get(col, "") if selected.get(col, "") is not None else "")
                 new = st.text_input(col, value=current, key=f"feat_edit_{col}")
                 if new != current:
@@ -939,6 +957,41 @@ def feats_lookup_page():
                 st.rerun()
 
 
+
+def normalize_feat_import_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [str(c).replace(" ", " ").strip() for c in df.columns]  # NBSP -> space
+
+    rename = {}
+    for c in df.columns:
+        k = c.lower().strip()
+        if k in {"feat", "name", "feat name"}:
+            rename[c] = "Feat Name"
+        elif k == "category":
+            rename[c] = "Category"
+        elif k in {"prerequisite", "prereq"}:
+            rename[c] = "Prerequisite"
+        elif k in {"repeatable", "repeat"}:
+            rename[c] = "Repeatable"
+        elif k in {"summary", "desc", "description"}:
+            rename[c] = "Summary"
+        elif k == "source":
+            rename[c] = "Source"
+        elif k == "race":
+            rename[c] = "Race"
+        elif k == "class":
+            rename[c] = "Class"
+        elif k == "subclass":
+            rename[c] = "Subclass"
+
+    df = df.rename(columns=rename)
+
+    for c in FEAT_COLS:
+        if c not in df.columns:
+            df[c] = ""
+    df = df[FEAT_COLS].fillna("")
+    return df
+
 def manage_feats_page():
     st.title("Manage Feats")
     st.info(
@@ -957,8 +1010,14 @@ def manage_feats_page():
     template = export_df.copy().head(0)
     ex = {c: "" for c in template.columns}
     ex["Feat Name"] = "Sharpshooter"
+    ex["Category"] = "General Feat"
+    ex["Prerequisite"] = "Level 4+"
+    ex["Repeatable"] = "No"
+    ex["Summary"] = "Example.\n\n**Bold** and <u>underline</u> supported."
+    ex["Source"] = "Player's Handbook 2024"
+    ex["Race"] = ""
     ex["Class"] = "Fighter; Ranger"
-    ex["Description"] = "Example.\n\n**Bold** and <u>underline</u> supported."
+    ex["Subclass"] = ""
     template = pd.concat([template, pd.DataFrame([ex])], ignore_index=True)
 
     st.subheader("Downloads")
@@ -968,7 +1027,7 @@ def manage_feats_page():
             "Fill the Data sheet only.",
             "Use semicolons to separate multiples (e.g., Fighter; Ranger).",
             "Leave blanks blank (do not use _).",
-            "Description supports Markdown; underline via <u>text</u>.",
+            "Summary supports Markdown; underline via <u>text</u>.",
             "Upload via Bulk Import / Replace."
         ]),
         file_name="feats_template.xlsx",
@@ -992,6 +1051,7 @@ def manage_feats_page():
     if up is not None and st.button("Import Feats (Replace DB)", type="primary", use_container_width=True):
         df_in = pd.read_excel(up, dtype=str).fillna("")
         df_in.columns = [str(c).strip() for c in df_in.columns]
+        df_in = normalize_feat_import_columns(df_in)
 
         if save_copy:
             df_in.to_excel(DEFAULT_FEATS_XLSX, index=False)
@@ -1006,10 +1066,14 @@ def manage_feats_page():
     st.subheader("Add New Feat (no Excel needed)")
     with st.form("add_feat_form", clear_on_submit=True):
         name = st.text_input("Feat Name*", value="")
+        category = st.text_input("Category", value="")
+        prerequisite = st.text_input("Prerequisite", value="")
+        repeatable = st.text_input("Repeatable", value="")
+        source = st.text_input("Source", value="")
         race = st.text_input("Race", value="")
         clazz = st.text_input("Class", value="")
         subclass = st.text_input("Subclass", value="")
-        desc = st.text_area("Description (Markdown)", value="", height=240)
+        summary = st.text_area("Summary (Markdown)", value="", height=240)
         submitted = st.form_submit_button("Create Feat", type="primary")
 
         if submitted:
@@ -1018,10 +1082,14 @@ def manage_feats_page():
             else:
                 new_id = insert_row(TABLE_FEATS, {
                     "Feat Name": name,
+                    "Category": category,
+                    "Prerequisite": prerequisite,
+                    "Repeatable": repeatable,
+                    "Summary": summary,
+                    "Source": source,
                     "Race": race,
                     "Class": clazz,
                     "Subclass": subclass,
-                    "Description": desc,
                 })
                 st.cache_data.clear()
                 st.success(f"Created feat (ID {new_id}).")
