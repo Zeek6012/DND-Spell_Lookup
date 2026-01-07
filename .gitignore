@@ -1,0 +1,11 @@
+﻿# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# Data (we'll decide whether to commit your Excel or not)
+data/
